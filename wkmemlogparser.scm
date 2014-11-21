@@ -40,39 +40,44 @@
    (backtrace address size frames))))
 
 
-(define (parse backtrace-action)
+(define (parse-fold proc seed)
   (define (index? str)
    (string-prefix? "#" str))
 
  (let lp ((current-address #f)
           (current-size #f)
           (current-frames '())
-          (tokens (tokenize)))
+          (tokens (tokenize))
+          (seed seed))
   (match tokens
    ((? eof-object? eof) *unspecified*)
 
    ((size "bytes" "at" address)
-    (and current-address
-     (backtrace-action
-      (backtrace current-address current-size (reverse current-frames))))
-    (lp address size '() (tokenize)))
+    (let ((new-seed
+     (if current-address
+      (proc (backtrace current-address current-size (reverse current-frames)) seed)
+       seed)))
+    (lp address size '() (tokenize) new-seed)))
 
    (((? index? _) function "at" location)
     (lp current-address current-size
-     (cons (cons function location) current-frames) (tokenize)))
+     (cons (cons function location) current-frames) (tokenize) seed))
 
    (("Backtrace" "end")
-    (backtrace-action
-     (backtrace current-address current-size (reverse current-frames)))
-    (lp #f #f '() (tokenize)))
+    (let ((new-seed (proc
+                     (backtrace current-address current-size (reverse current-frames))
+                     seed)))
+    (lp #f #f '() (tokenize) new-seed)))
 
    (((or "[GC:" "FullCollection," "EddenCollection,") args ...)
     ; these messages tend to be "out of line", so we "eat" them here
-    (lp current-address current-size current-frames args))
+    (lp current-address current-size current-frames args seed))
 
    (_ ; ignore everything else
-    (lp current-address current-size current-frames (tokenize))))))
+    (lp current-address current-size current-frames (tokenize) seed)))))
     
+(define (parse backtrace-action)
+ (parse-fold (lambda (backtrace seed) (backtrace-action backtrace)) #f))
 
 (define (fold-backtraces proc seed)
  (let lp ((seed seed))
