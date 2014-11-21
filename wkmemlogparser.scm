@@ -16,28 +16,14 @@
     line
     (string-tokenize line))))
 
-(define-immutable-record-type <backtrace>
- (backtrace address size frames)
- backtrace?
- (address backtrace-address backtrace-set-address)
- (size backtrace-size backtrace-set-size)
- (frames backtrace-frames backtrace-set-frames))
+(define (backtrace address size frames) `(backtrace ,address ,size ,frames))
+
 
 (define (display-backtrace backtrace)
  (match backtrace
-  (($ <backtrace> address size frames)
+  (('backtrace address size frames)
    (format #t "~A: ~A bytes\n" address size)
    (for-each (cut format #t "~A\n" <>) frames))))
-
-(define (backtrace-sexpr backtrace)
- (match backtrace
-  (($ <backtrace> address size frames)
-   `(backtrace ,address ,size ,frames))))
-
-(define (backtrace-from-sexpr sexpr)
- (match sexpr
-  (('backtrace address size frames)
-   (backtrace address size frames))))
 
 
 (define (parse-fold proc seed)
@@ -50,14 +36,13 @@
           (tokens (tokenize))
           (seed seed))
   (match tokens
-   ((? eof-object? eof) *unspecified*)
+   ((? eof-object? eof) seed)
 
    ((size "bytes" "at" address)
-    (let ((new-seed
+    (lp address size '() (tokenize)
      (if current-address
       (proc (backtrace current-address current-size (reverse current-frames)) seed)
-       seed)))
-    (lp address size '() (tokenize) new-seed)))
+      seed)))
 
    (((? index? _) function "at" location)
     (lp current-address current-size
@@ -77,7 +62,9 @@
     (lp current-address current-size current-frames (tokenize) seed)))))
     
 (define (parse backtrace-action)
- (parse-fold (lambda (backtrace seed) (backtrace-action backtrace)) #f))
+ (parse-fold
+  (lambda (bt seed) (backtrace-action bt))
+  #f))
 
 (define (fold-backtraces proc seed)
  (let lp ((seed seed))
@@ -88,7 +75,7 @@
 
 (define (parse-dat backtrace-action)
  (fold-backtraces
-  (lambda (backtrace seed) (backtrace-action (backtrace-from-sexpr backtrace)))
+  (lambda (backtrace seed) (backtrace-action backtrace))
   #f))
 
 ; '(node location total children)
@@ -133,8 +120,8 @@
         (cons (insert-backtrace child other-frames alloc-size) more-children)
         (append (new-subtree reversed-frames) children)))))))))
 
-(define (make-tree)
- (fold-backtraces
+(define (make-tree fold-proc)
+ (fold-proc
   (lambda (backtrace root)
    (match backtrace
     (('backtrace _ sizestr frames)
@@ -181,13 +168,17 @@
   ((_ "write-backtraces" logfile outfile)
    (with-output-to-file outfile
     (lambda ()
-     (with-input-from-file logfile (lambda () (parse (compose write backtrace-sexpr)))))))
+     (with-input-from-file logfile (lambda () (parse write))))))
 
   ((_ "show-data" datafile)
    (with-input-from-file datafile (lambda () (parse-dat display-backtrace))))
 
   ((_ "print-tree" datafile)
-   (with-input-from-file datafile (compose print-tree make-tree)))
+   (with-input-from-file datafile (lambda () (print-tree (make-tree fold-backtraces)))))
+
+  ((_ "print-tree-from-log" logfile)
+   (with-input-from-file logfile (lambda () (print-tree (make-tree parse-fold)))))
+
 
 
   ((cl . _)
@@ -197,4 +188,5 @@
    (format (current-error-port) "  write-backtraces LOGFILE OUTDATAFILE\n")
    (format (current-error-port) "  show-data DATAFILE\n")
    (format (current-error-port) "  print-tree DATAFILE\n")
+   (format (current-error-port) "  print-tree-from-log LOGFILE\n")
    (exit 1))))
