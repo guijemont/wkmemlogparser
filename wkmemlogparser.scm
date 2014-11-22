@@ -78,20 +78,20 @@
   (lambda (backtrace seed) (backtrace-action backtrace))
   #f))
 
-; '(node location total children)
+; '(node location total hits children)
 (define (insert-backtrace root reversed-frames alloc-size)
  "For a backtrace represented by REVERSED-FRAMES (frames from bottom to top), insert
  it in the children of the tree ROOT, considering that it did allocate
  ALLOC-SIZE.
  This procedure is not tail-recursive, but you shouldn't have that many frames
  anyway, right?"
- (define (node location total children) (list 'node location total children))
+ (define (node location total hits children) (list 'node location total hits children))
 
  (define (new-subtree frames)
   (match frames
    (() '())
    ((bottom-frame other-frames ...)
-    (list (node bottom-frame alloc-size (new-subtree other-frames))))))
+    (list (node bottom-frame alloc-size 1 (new-subtree other-frames))))))
 
  (define (find-matching-child loc children)
   (define (valid-child? child)
@@ -106,14 +106,14 @@
 
  (match root
 
-  (('node loc total ()) ; no children
-   (node loc (+ total alloc-size) (new-subtree reversed-frames)))
+  (('node loc total hits ()) ; no children
+   (node loc (+ total alloc-size) (1+ hits) (new-subtree reversed-frames)))
 
-  (('node loc total children)
+  (('node loc total hits children)
    (match reversed-frames
-    (() (node loc total children))
+    (() (node loc total hits children))
     ((bottom-frame other-frames ...)
-     (node loc (+ total alloc-size)
+     (node loc (+ total alloc-size) (1+ hits)
       (receive (child more-children)
        (find-matching-child bottom-frame children)
        (if child
@@ -126,12 +126,12 @@
    (match backtrace
     (('backtrace _ sizestr frames)
      (insert-backtrace root (reverse frames) (string->number sizestr)))))
-  (list 'node #f 0 '())))
+  (list 'node #f 0 0 '())))
 
 (define (print-tree root)
  (define (compare-nodes node1 node2)
   (match (cons node1 node2)
-   ((('node _ total1 _) . ('node _ total2 _))
+   ((('node _ total1 _ _) . ('node _ total2 _ _))
     (>= total1 total2))))
 
  (define (print-node node depth)
@@ -144,16 +144,16 @@
      (display "->"))
     (else (error "Invalid depth in print-prefix"))))
   (match node
-   (('node (function . loc) total _)
-    (format #t "~A bytes ~A (~A)\n" total function loc))))
+   (('node (function . loc) total hits _)
+    (format #t "~A bytes in ~A calls ~A (~A)\n" total hits function loc))))
 
  (let lp ((root root) (depth 0))
   (match root
-   (('node #f total children) (format #t "Total allocations: ~A bytes\n" total))
+   (('node #f total hits children) (format #t "Total allocations: ~A bytes\n" total))
    (node (print-node node depth)))
 
   (match root
-   (('node _ _ children)
+   (('node _ _ _ children)
     (for-each
      (lambda (child) (lp child (1+ depth)))
      (sort children compare-nodes))))))
