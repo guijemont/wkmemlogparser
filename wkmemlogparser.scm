@@ -14,7 +14,7 @@
  (let ((line (read-line)))
   (if (eof-object? line)
     line
-    (string-tokenize line))))
+    (string-split line #\space))))
 
 (define (backtrace address size frames) `(backtrace ,address ,size ,frames))
 
