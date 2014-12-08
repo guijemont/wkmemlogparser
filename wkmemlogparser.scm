@@ -78,14 +78,14 @@
   (lambda (backtrace seed) (backtrace-action backtrace))
   #f))
 
-; '(node location total hits children)
+; (vector node location total hits children)
 (define (insert-backtrace root reversed-frames alloc-size)
  "For a backtrace represented by REVERSED-FRAMES (frames from bottom to top), insert
  it in the children of the tree ROOT, considering that it did allocate
  ALLOC-SIZE.
  This procedure is not tail-recursive, but you shouldn't have that many frames
  anyway, right?"
- (define (node location total hits children) (list 'node location total hits children))
+ (define (node location total hits children) (vector 'node location total hits children))
 
  (define (new-subtree frames)
   (match frames
@@ -95,7 +95,7 @@
 
  (define (find-matching-child loc children)
   (define (valid-child? child)
-   (equal? (list-ref child 1) loc))
+   (equal? (vector-ref child 1) loc))
 
   (receive (matching other-children)
    (partition valid-child? children)
@@ -106,10 +106,10 @@
 
  (match root
 
-  (('node loc total hits ()) ; no children
+  (#('node loc total hits ()) ; no children
    (node loc (+ total alloc-size) (1+ hits) (new-subtree reversed-frames)))
 
-  (('node loc total hits children)
+  (#('node loc total hits children)
    (match reversed-frames
     (() (node loc total hits children))
     ((bottom-frame other-frames ...)
@@ -126,12 +126,12 @@
    (match backtrace
     (('backtrace _ sizestr frames)
      (insert-backtrace root (reverse frames) (string->number sizestr)))))
-  (list 'node #f 0 0 '())))
+  (vector 'node #f 0 0 '())))
 
 (define (print-tree root)
  (define (compare-nodes node1 node2)
   (match (cons node1 node2)
-   ((('node _ total1 _ _) . ('node _ total2 _ _))
+   ((#('node _ total1 _ _) . #('node _ total2 _ _))
     (>= total1 total2))))
 
  (define (print-node node depth)
@@ -144,16 +144,16 @@
      (display "->"))
     (else (error "Invalid depth in print-prefix"))))
   (match node
-   (('node (function . loc) total hits _)
+   (#('node (function . loc) total hits _)
     (format #t "~A bytes in ~A calls ~A (~A)\n" total hits function loc))))
 
  (let lp ((root root) (depth 0))
   (match root
-   (('node #f total hits children) (format #t "Total allocations: ~A bytes\n" total))
+   (#('node #f total hits children) (format #t "Total allocations: ~A bytes\n" total))
    (node (print-node node depth)))
 
   (match root
-   (('node _ _ _ children)
+   (#('node _ _ _ children)
     (for-each
      (lambda (child) (lp child (1+ depth)))
      (sort children compare-nodes))))))
